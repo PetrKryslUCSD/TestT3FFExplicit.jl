@@ -4,6 +4,7 @@
 *.vtk
 *.vtu
 *.pvd
+*.res
 *.jls
 *.jld
 *.png

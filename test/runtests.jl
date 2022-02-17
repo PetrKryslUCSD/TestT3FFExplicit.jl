@@ -3,7 +3,7 @@
 
 for s in readdir("."; join=true, sort=true)
     f, e = splitext(s)
-    if e == ".pdf" || e == ".vtu" || e == ".pvd" || e == ".res.csv"
+    if e == ".pdf" || e == ".vtu" || e == ".pvd" || e == ".res"
         try
             rm(s)
         catch
