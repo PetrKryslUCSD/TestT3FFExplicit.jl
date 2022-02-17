@@ -4,8 +4,8 @@ using FinEtools
 
 objects = []
 
-f = CSV.File("$(@__DIR__)/spherical_cap_expl_22-KE-1.0.res.csv") 
-xdata, ydata = f["t"][1:21:end],  f["v"][1:2:end];
+f = CSV.File("$(@__DIR__)/spherical_cap_expl_22-KE-1.0.res") 
+xdata, ydata = f["t"][1:2:end],  f["v"][1:2:end];
 @pgf p = PGFPlotsX.Plot(
 {
 color = "black",
@@ -16,7 +16,7 @@ Coordinates([v for v in  zip(xdata, ydata)])
 push!(objects, p)
 push!(objects, LegendEntry("1.0"))
 
-f = CSV.File("$(@__DIR__)/spherical_cap_expl_22-KE-0.1.res.csv") 
+f = CSV.File("$(@__DIR__)/spherical_cap_expl_22-KE-0.1.res") 
 xdata, ydata = f["t"][1:71:end],  f["v"][1:71:end];
 @pgf p = PGFPlotsX.Plot(
 {
@@ -30,7 +30,7 @@ Coordinates([v for v in  zip(xdata, ydata)])
 push!(objects, p)
 push!(objects, LegendEntry("0.1"))
 
-f = CSV.File("$(@__DIR__)/spherical_cap_expl_22-KE-10.0.res.csv") 
+f = CSV.File("$(@__DIR__)/spherical_cap_expl_22-KE-10.0.res") 
 xdata, ydata = f["t"][17:71:end],  f["v"][17:71:end];
 @pgf p = PGFPlotsX.Plot(
 {
