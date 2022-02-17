@@ -221,8 +221,6 @@ function _execute(nref = 2, nthr = 0)
         Fmag[pointdofs["A"]] = -totalforce/4 # only a quarter of the plate is modeled
     end
 
-    @show sum(Fmag), -totalforce/4
-
     function force!(F, t)
         mul = 0.0
         if t <= 1/modulation_frequency
