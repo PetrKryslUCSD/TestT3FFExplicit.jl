@@ -106,7 +106,7 @@ function _execute_parallel_csr(nref = 2, nthr = 0)
     for r in 1:nref
         fens, fes = T3refine(fens, fes)
     end
-    @show count(fens)
+    # @show count(fens)^
     vtkwrite("angle_bar.vtu", fens, fes)
 
     bfes = meshboundary(fes)

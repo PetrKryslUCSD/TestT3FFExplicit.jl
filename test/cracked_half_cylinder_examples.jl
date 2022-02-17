@@ -58,12 +58,10 @@ const modulation_frequency = carrier_frequency/4
 const totalforce = 1*phun("N")
 const forcepatchradius = 3*phun("mm")
 const forcedensity = totalforce/(pi*forcepatchradius^2)
-const color = "red"
 const tend = 0.5*phun("milli*s")
 const visualize = true
 const visualizeclear = true
 const visualizevtk = !true
-const color = "black"
 const distributedforce = !true
 
 
@@ -120,7 +118,7 @@ function _execute(nref = 2, nthr = 0, color = "red")
     for r in 1:nref
         fens1, fes1 = T3refine(fens1, fes1)
     end
-    @show count(fens1), count(fes1)
+    
 
     ys = collect(linearspace(d4, d3, nd3))
     
@@ -128,11 +126,11 @@ function _execute(nref = 2, nthr = 0, color = "red")
     for r in 1:nref
         fens2, fes2 = T3refine(fens2, fes2)
     end
-    @show count(fens2), count(fes2)
+    
 
     fens, fes1, fes2 = mergemeshes(fens1, fes1,  fens2, fes2, 0.0)
     fes = cat(fes1, fes2)
-    @show count(fens), count(fes)
+    
 
     offset = min(d2 / nd2 / nref / 10, 4*tolerance)
     l1 = selectnode(fens; box = [0 d5+offset d4 d4], inflate = tolerance)
@@ -152,7 +150,6 @@ function _execute(nref = 2, nthr = 0, color = "red")
         fens.xyz[i, :] .= cos(pi-a)*radius, y, sin(pi-a)*radius
     end
 
-    @show count(fens)
     vtkwrite("cracked_half_pipe.vtu", fens, fes)
     vtkwrite("cracked_half_pipe-boundary.vtu", fens, bfes)
 
