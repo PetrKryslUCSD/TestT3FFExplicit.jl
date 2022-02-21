@@ -40,12 +40,13 @@ const visualizeclear = true
 const visualizevtk = !true
 const distributedforce = !true
 
-# Solve
-function pwr(K, M, maxit = 30)
+function _pwr(K, M, maxit = 30, rtol = 1/10000)
     invM = fill(0.0, size(M, 1))
     invM .= 1.0 ./ (vec(diag(M)))
     v = rand(size(M, 1))
     w = fill(0.0, size(M, 1))
+    everyn = Int(round(maxit / 50)) + 1
+    lambda = lambdap = 0.0
     for i in 1:maxit
         ThreadedSparseCSR.bmul!(w, K, v)
         wn = norm(w)
@@ -53,19 +54,28 @@ function pwr(K, M, maxit = 30)
         v .= invM .* w
         vn = norm(v)
         v .*= (1.0/vn)
+        if i % everyn  == 0
+            lambda = sqrt((v' * (K * v)) / (v' * M * v))
+            # @show i, abs(lambda - lambdap) / lambda
+            if abs(lambda - lambdap) / lambda  < rtol
+                break
+            end
+            lambdap = lambda
+        end
     end
-    sqrt((v' * (K * v)) / (v' * M * v))
+    return lambda
 end
 
-function parloop_csr!(M, K, ksi, U0, V0, tend, dt, force!, peek, nthr)
-    U = deepcopy(U0)
-    V = deepcopy(U0)
-    A = deepcopy(U0)
-    F = deepcopy(U0)
-    E = deepcopy(U0)
-    C = deepcopy(U0)
+function _cd_loop!(M, K, ksi, U0, V0, tend, dt, force!, peek)
+    # Central difference integration loop, for mass-proportional Rayleigh damping.
+    U = similar(U0)
+    V = similar(U0)
+    A = similar(U0)
+    F = similar(U0)
+    E = similar(U0)
+    C = similar(U0)
     C .= (ksi*2*omegad) .* vec(diag(M))
-    invMC = deepcopy(U0)
+    invMC = similar(U0)
     invMC .= 1.0 ./ (vec(diag(M)) .+ (dt/2) .* C)
     nsteps = Int64(round(tend/dt))
     if nsteps*dt < tend
@@ -74,27 +84,23 @@ function parloop_csr!(M, K, ksi, U0, V0, tend, dt, force!, peek, nthr)
     dt2_2 = ((dt^2)/2)
     dt_2 = (dt/2)
 
-    nth = (nthr == 0 ? Base.Threads.nthreads() : nthr)
-    @info "$nth threads used"
-    
     t = 0.0
     @. U = U0; @. V = V0; # Initial Conditions
     A .= invMC .* force!(F, t); # Compute initial acceleration
-    peek(0, U, t)
-    @time for step in 1:nsteps
+    peek(0, U, V, t)
+    for step in 1:nsteps
         t = t + dt
         @. U += dt*V + dt2_2*A;   # Displacement update
         force!(F, t);  # External forces are computed
         ThreadedSparseCSR.bmul!(E, K, U)  # Evaluate elastic restoring forces
-        F .-= E .+ C .* (V .+ dt_2 .* A)  # Calculate total force
-        @inbounds @simd for i in eachindex(U)
-            _Ai = A[i]; # This is the previous acceleration
-            A[i] = invMC[i] * F[i] # Compute the new acceleration. 
-            V[i] += dt_2 * (_Ai + A[i]); # Update the velocity
-        end
-        peek(step, U, t)
+        @. F -= E + C * (V + dt_2 * A)  # Calculate total force
+        @. V += dt_2 * A; # Update the velocity, part one: add old acceleration
+        @. A = invMC * F # Compute the acceleration
+        @. V += dt_2 * A; # Update the velocity, part two: add new acceleration
+        peek(step, U, V, t)
     end
 end
+
 
 cylindrical!(csmatout::FFltMat, XYZ::FFltMat, tangents::FFltMat, fe_label::FInt) = begin
     r = vec(XYZ); r[2] = 0.0;
@@ -160,13 +166,13 @@ function _set_up_model(n = 64, thickness = 0.01, drilling_stiffness_scale = 1.0)
     return fens, fes, geom0, dchi, K, M
 end
 
-function _execute_parallel_csr(n = 64, thickness = 0.01, nthr = 0)
+function _execute(n = 64, thickness = 0.01)
     fens, fes, geom0, dchi, K, M = _set_up_model(n, thickness)
     
     @info "Mesh $(count(fens)) nodes, $(count(fes)) elements"
 
     # Compute the maximum eigenvalue to determine the stable time step
-    omega_max = pwr(K, M)
+    omega_max = _pwr(K, M, 300)
     
 
     # @time evals, evecs, nconv = eigs(Symmetric(K), Symmetric(M); nev=1, which=:LM, explicittransform=:none)
@@ -227,7 +233,7 @@ function _execute_parallel_csr(n = 64, thickness = 0.01, nthr = 0)
     nbtw = Int(round(nsteps/100))
 
 
-    peek(step, U, t) = begin
+    peek(step, U, V, t) = begin
         cdeflections[step+1] = U[cpointdof]
         if rem(step+1, nbtw) == 0
             push!(displacements, deepcopy(U))
@@ -236,7 +242,7 @@ function _execute_parallel_csr(n = 64, thickness = 0.01, nthr = 0)
     end
 
     @info "$nsteps steps"
-    parloop_csr!(M, K, ksi, U0, V0, nsteps*dt, dt, force!, peek, nthr)
+    _cd_loop!(M, K, ksi, U0, V0, nsteps*dt, dt, force!, peek)
     
     if visualize
         # @gp  "set terminal windows 0 "  :-
@@ -266,21 +272,21 @@ end
 function _test_stable_time_step(n = 64, thickness = 0.01, drilling_stiffness_scale = 1.0)
     fens, fes, geom0, dchi, K, M = _set_up_model(n, thickness, drilling_stiffness_scale)
     
-    omega_max = pwr(K, M, 300)
+    omega_max = _pwr(K, M, 300)
     
 
     # evals, evecs, nconv = eigs(Symmetric(K), Symmetric(M); nev=1, which=:LM, explicittransform=:none)
     
     # omega_max = sqrt(evals[1])
 
-    dt = Float64(0.9* 2/omega_max) * (sqrt(1+ksi^2) - ksi)
+    dt = Float64(0.9* 2/omega_max)
     return dt
 end
 
-function test_parallel_csr(ns = [4*64], nthr = 0)
+function test(ns = [4*64])
     @info "Clamped cylinder: transient vibration"
     for n in ns
-        _execute_parallel_csr(n, 0.01, nthr)
+        _execute(n, 0.01)
     end
     return true
 end
@@ -303,8 +309,8 @@ end
 
 function allrun(ns = [2*64])
      println("#####################################################")
-    println("# test_parallel_csr ")
-    test_parallel_csr(ns)
+    println("# test ")
+    test(ns)
     return true
 end # function allrun
 

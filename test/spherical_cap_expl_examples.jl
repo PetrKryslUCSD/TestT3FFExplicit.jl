@@ -42,15 +42,42 @@ const color = "red"
 const tend = 0.001 #6e-4
 const visualize = true
 
-function parloop_csr!(M, K, ksi, U0, V0, tend, dt, force!, peek, nthr)
-    U = deepcopy(U0)
-    V = deepcopy(U0)
-    A = deepcopy(U0)
-    F = deepcopy(U0)
-    E = deepcopy(U0)
-    C = deepcopy(U0)
+function _pwr(K, M, maxit = 30, rtol = 1/10000)
+    invM = fill(0.0, size(M, 1))
+    invM .= 1.0 ./ (vec(diag(M)))
+    v = rand(size(M, 1))
+    w = fill(0.0, size(M, 1))
+    everyn = Int(round(maxit / 50)) + 1
+    lambda = lambdap = 0.0
+    for i in 1:maxit
+        ThreadedSparseCSR.bmul!(w, K, v)
+        wn = norm(w)
+        w .*= (1.0/wn)
+        v .= invM .* w
+        vn = norm(v)
+        v .*= (1.0/vn)
+        if i % everyn  == 0
+            lambda = sqrt((v' * (K * v)) / (v' * M * v))
+            # @show i, abs(lambda - lambdap) / lambda
+            if abs(lambda - lambdap) / lambda  < rtol
+                break
+            end
+            lambdap = lambda
+        end
+    end
+    return lambda
+end
+
+function _cd_loop!(M, K, ksi, U0, V0, tend, dt, force!, peek)
+    # Central difference integration loop, for mass-proportional Rayleigh damping.
+    U = similar(U0)
+    V = similar(U0)
+    A = similar(U0)
+    F = similar(U0)
+    E = similar(U0)
+    C = similar(U0)
     C .= (ksi*2*omegad) .* vec(diag(M))
-    invMC = deepcopy(U0)
+    invMC = similar(U0)
     invMC .= 1.0 ./ (vec(diag(M)) .+ (dt/2) .* C)
     nsteps = Int64(round(tend/dt))
     if nsteps*dt < tend
@@ -59,29 +86,24 @@ function parloop_csr!(M, K, ksi, U0, V0, tend, dt, force!, peek, nthr)
     dt2_2 = ((dt^2)/2)
     dt_2 = (dt/2)
 
-    nth = (nthr == 0 ? Base.Threads.nthreads() : nthr)
-    @info "$nth threads used"
-    
     t = 0.0
     @. U = U0; @. V = V0; # Initial Conditions
     A .= invMC .* force!(F, t); # Compute initial acceleration
     peek(0, U, V, t)
-    @time for step in 1:nsteps
+    for step in 1:nsteps
         t = t + dt
         @. U += dt*V + dt2_2*A;   # Displacement update
         force!(F, t);  # External forces are computed
         ThreadedSparseCSR.bmul!(E, K, U)  # Evaluate elastic restoring forces
-        F .-= E .+ C .* (V .+ dt_2 .* A)  # Calculate total force
-        @inbounds @simd for i in eachindex(U)
-            _Ai = A[i]; # This is the previous acceleration
-            A[i] = invMC[i] * F[i] # Compute the new acceleration. 
-            V[i] += dt_2 * (_Ai + A[i]); # Update the velocity
-        end
+        @. F -= E + C * (V + dt_2 * A)  # Calculate total force
+        @. V += dt_2 * A; # Update the velocity, part one: add old acceleration
+        @. A = invMC * F # Compute the acceleration
+        @. V += dt_2 * A; # Update the velocity, part two: add new acceleration
         peek(step, U, V, t)
     end
 end
 
-function _execute_parallel_csr(n = 64, drilling_stiffness_scale = 1.0, nthr = 0)
+function _execute(n = 64, drilling_stiffness_scale = 1.0)
     color = "red"
     tolerance = min(R, h) / n  / 100
     
@@ -219,7 +241,7 @@ function _execute_parallel_csr(n = 64, drilling_stiffness_scale = 1.0, nthr = 0)
     end
 
     @info "$nsteps steps"
-    parloop_csr!(M, K, ksi, U0, V0, nsteps*dt, dt, force!, peek, nthr)
+    _cd_loop!(M, K, ksi, U0, V0, nsteps*dt, dt, force!, peek)
 
     @info "Saving spherical_cap_expl_$n-KE-$(drilling_stiffness_scale)"
     savecsv("spherical_cap_expl_$n-KE-$(drilling_stiffness_scale).res", t = collect(0.0:dt:(nsteps*dt))./phun("milli*s"), v = kinetic_energy/phun("lbf*in"))
@@ -438,11 +460,11 @@ function _execute_parallel_csr(n = 64, drilling_stiffness_scale = 1.0, nthr = 0)
     end
 end
 
-function test_parallel_csr(ns = [4*64], nthr = 0)
+function test(ns = [4*64])
     @info "Clamped cylinder: parallel CSR"
     for n in ns
         for drilling_stiffness_scale in [0.1, 1.0, 10.0]
-            _execute_parallel_csr(n, drilling_stiffness_scale, nthr)
+            _execute(n, drilling_stiffness_scale)
         end
     end
     return true
@@ -450,8 +472,8 @@ end
 
 function allrun(ns = [22])
     println("#####################################################")
-    println("# test_parallel_csr ")
-    test_parallel_csr(ns)
+    println("# test ")
+    test(ns)
     return true
 end # function allrun
 
