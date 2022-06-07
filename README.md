@@ -2,7 +2,7 @@
 
 Illustration of the T3FF general flat-facet shell finite element capabilities in
 explicit integration of wave propagation problems. The paper describing this
-element has been submitted 02/2022.
+element has been submitted 02/2022, and appeared 06/07/2022 (http://doi.org/10.1002/nme.7045).
 
 ## Instructions for those new to Julia
 
